@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: br.com.souza.saga_orchestrator.application.domain.service.SagaManagerTest
+-------------------------------------------------------------------------------
+Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.729 s -- in br.com.souza.saga_orchestrator.application.domain.service.SagaManagerTest

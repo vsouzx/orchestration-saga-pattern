@@ -1,0 +1,43 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  otlp_grpc/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
+
+processors:
+  batch:
+  resource:
+    attributes:
+      - action: insert
+        key: loki.resource.labels
+        value: service.name
+  transform/logs:
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["level"], severity_text)
+          - set(attributes["trace_id"], trace_id)
+          - set(attributes["span_id"], span_id)
+          - set(attributes["msg"], body)
+          - set(body, attributes)
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp_grpc/jaeger]
+    logs:
+      receivers: [otlp]
+      processors: [batch, transform/logs, resource]
+      exporters: [otlp_http/loki]

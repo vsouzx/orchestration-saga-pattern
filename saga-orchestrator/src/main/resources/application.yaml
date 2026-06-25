@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: saga-orchestrator
+
+  datasource:
+    url: jdbc:postgresql://localhost:5433/saga_db
+    username: saga
+    password: saga
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  kafka:
+    bootstrap-servers: localhost:29092
+
+server:
+  port: 8084
+
+otel:
+  sdk:
+    disabled: false
+  exporter:
+    otlp:
+      endpoint: http://localhost:4318
+  traces:
+    exporter: otlp
+  metrics:
+    exporter: none
+  logs:
+    exporter: otlp
+
+saga:
+  timeout-minutes: 5

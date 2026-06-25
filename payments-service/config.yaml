@@ -1,0 +1,17 @@
+server:
+  port: ":8083"
+
+mysql:
+  dsn: "root:root@tcp(localhost:3308)/payments?parseTime=true"
+
+kafka:
+  brokers:
+    - "localhost:29092"
+  process_payment_topic: "payments.commands.process-payment"
+  payments_replies_topic: "payments.replies"
+
+outbox:
+  batch_size: 10
+
+otel:
+  exporter_endpoint: "localhost:4317"

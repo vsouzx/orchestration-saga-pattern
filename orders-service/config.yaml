@@ -1,0 +1,23 @@
+server:
+  port: ":8081"
+
+mysql:
+  dsn: "root:root@tcp(localhost:3307)/orders?parseTime=true"
+
+redis:
+  addr: "localhost:6379"
+  pass: ""
+  db: 0
+
+kafka:
+  brokers:
+    - "localhost:29092"
+  orders_replies_topic: "orders.replies"
+  confirm_order_topic: "orders.commands.confirm-order"
+  cancel_order_topic: "orders.commands.cancel-order"
+
+outbox:
+  batch_size: 10
+
+otel:
+  exporter_endpoint: "localhost:4317"

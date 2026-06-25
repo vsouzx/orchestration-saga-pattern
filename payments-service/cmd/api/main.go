@@ -1,0 +1,148 @@
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"payments-service/internal/config"
+	"payments-service/internal/consumer"
+	"payments-service/internal/relay"
+	"payments-service/internal/repository"
+	"payments-service/internal/service"
+	"syscall"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/contrib/bridges/otelzap"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+)
+
+func main() {
+	cfg := config.Load()
+
+	// inicia logger
+	baseLogger, err := config.InitLogger()
+	if err != nil {
+		log.Fatalf("logger: %v", err)
+	}
+	defer baseLogger.Sync()
+
+	// inicia log provider (OTLP)
+	logProvider, err := config.InitLoggerProvider(cfg.Otel, "payments-service")
+	if err != nil {
+		log.Fatalf("log provider: %v", err)
+	}
+	defer logProvider.Shutdown(context.Background())
+
+	// bridge zap -> otel
+	otelCore := otelzap.NewCore("payments-service", otelzap.WithLoggerProvider(logProvider))
+	logger := zap.New(zapcore.NewTee(baseLogger.Core(), otelCore))
+	defer logger.Sync()
+
+	// conecta ao banco de dados
+	database, err := config.MustConnectMySQL(logger, cfg.MySQL.DSN)
+	if err != nil {
+		log.Fatalf("mysql: %v", err)
+	}
+	defer database.Close()
+
+	// inicia tracer
+	tracer, err := config.InitTracer(cfg.Otel)
+	if err != nil {
+		log.Fatalf("tracer: %v", err)
+	}
+	defer tracer.Shutdown(context.Background())
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	// repositories
+	paymentRepo := repository.NewPaymentRepository(database)
+	outboxRepo := repository.NewOutboxRepository(database)
+
+	// service
+	paymentService := service.NewPaymentService(logger, database, paymentRepo, outboxRepo)
+
+	// contexto cancelável para consumer e relay
+	appCtx, cancelApp := context.WithCancel(context.Background())
+	defer cancelApp()
+
+	// kafka consumer — command handler
+	processPaymentReader := config.NewKafkaConsumer(cfg.Kafka.Brokers, cfg.Kafka.ProcessPaymentTopic, "payments-service-group")
+	defer processPaymentReader.Close()
+
+	processPaymentConsumer := consumer.NewProcessPaymentConsumer(logger, processPaymentReader, paymentService)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("process-payment consumer panic", zap.Any("panic", r))
+			}
+		}()
+		processPaymentConsumer.Start(appCtx)
+	}()
+
+	// kafka producer — single topic: payments.replies
+	repliesWriter := config.NewKafkaProducer(cfg.Kafka.Brokers, cfg.Kafka.PaymentsRepliesTopic)
+	defer repliesWriter.Close()
+
+	writers := map[string]*kafka.Writer{
+		"payments.replies": repliesWriter,
+	}
+
+	// relay
+	outboxRelay := relay.NewOutboxRelay(logger, outboxRepo, writers, cfg.Outbox.BatchSize)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("outbox relay panic", zap.Any("panic", r))
+			}
+		}()
+		outboxRelay.Start(appCtx)
+	}()
+
+	r := gin.New()
+	r.Use(gin.Recovery())
+
+	// health check
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status": "UP",
+		})
+	})
+
+	srv := &http.Server{
+		Addr:    cfg.Server.Port,
+		Handler: r,
+	}
+
+	go func() {
+		logger.Info("server starting", zap.String("addr", cfg.Server.Port))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server: %v", err)
+		}
+	}()
+
+	// aguarda SIGINT ou SIGTERM
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	logger.Info("shutting down server...")
+
+	// cancela consumer e relay
+	cancelApp()
+
+	// dá 10s para requests em andamento terminarem
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("server forced to shutdown", zap.Error(err))
+	}
+
+	logger.Info("server exited")
+}
