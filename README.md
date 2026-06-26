@@ -1,10 +1,10 @@
-# Saga Pattern - Orchestrated Event-Driven Microservices
+# Orchestration Saga Pattern - Event-Driven Microservices
 
 Implementacao de um sistema de pedidos distribuido utilizando o **Saga Pattern (Orchestration-based)** com **Transactional Outbox** para garantia de entrega de eventos. Um **orquestrador central** coordena as transacoes distribuidas entre microservicos, gerenciando uma **maquina de estados** que controla o fluxo de comandos e compensacoes de forma resiliente, idempotente e observavel.
 
 ## Desenho arquitetura
 
-<img width="1405" height="813" alt="Image" src="https://github.com/user-attachments/assets/effd7891-5e74-404d-adee-35cc4095859f" />
+<img width="1331" height="917" alt="Image" src="https://github.com/user-attachments/assets/97c072c4-4ee8-4ffa-91e3-54836b6755af" />
 
 ## Indice
 
