@@ -1,80 +1,100 @@
 # Orders Service
 
-Serviço de pedidos em uma arquitetura de microsserviços baseada no padrão **Saga** para coordenação de transações distribuídas.
+Ponto de entrada do sistema de pedidos distribuido. Recebe requisicoes HTTP para criacao de pedidos e publica replies para o orquestrador via **Transactional Outbox**. Consome comandos do orquestrador para confirmar ou cancelar pedidos.
+
+**Porta:** 8081 | **Banco:** MySQL | **Linguagem:** Go 1.25
 
 ## Arquitetura
 
-O serviço utiliza o **Transactional Outbox Pattern**: ao criar um pedido, tanto o registro do pedido quanto um evento de outbox (`order.created`) são gravados no MySQL na mesma transação, garantindo entrega confiável de eventos para os consumidores downstream via Kafka.
-
-### Estrutura do Projeto
-
 ```
 orders-service/
-├── cmd/api/          # Entrypoint — inicializa dependências e servidor Gin
+├── cmd/api/main.go              # Entrypoint
 ├── internal/
-│   ├── handler/      # HTTP handlers (binding de request, escrita de response)
-│   ├── service/      # Lógica de negócio e orquestração
-│   ├── repository/   # Persistência MySQL via database/sql
-│   ├── domain/       # Modelos de domínio, enums e payloads de eventos
-│   ├── consumer/     # Consumers Kafka para eventos de compensação da Saga
-│   └── config/       # Configuração via variáveis de ambiente
-├── INIT.sql          # Schema do banco (MySQL/InnoDB)
+│   ├── config/                  # Configuracao via env vars (Viper + config.yaml)
+│   ├── handler/                 # HTTP handlers (Gin)
+│   ├── service/                 # Logica de negocio (CreateOrder, ConfirmOrder, CancelOrder)
+│   ├── repository/              # Acesso a dados MySQL (interface DBTX para testabilidade)
+│   ├── domain/                  # Modelos, enums, payloads de eventos e AppError
+│   ├── consumer/                # Kafka consumers (comandos do orquestrador)
+│   │   ├── confirm_order.go     # Consome orders.commands.confirm-order
+│   │   ├── cancel_order.go      # Consome orders.commands.cancel-order
+│   │   └── trace_context.go     # Extracao de traceparent (W3C)
+│   ├── relay/                   # Outbox relay (polling a cada 5s, FOR UPDATE SKIP LOCKED)
+│   ├── middleware/              # IdempotencyMiddleware (Redis SetNX) e ErrorHandler
+│   └── logger/                  # Logger context-aware (Zap + trace_id/span_id)
+├── INIT.sql                     # Schema do banco
 ├── Dockerfile
 └── go.mod
 ```
 
-## Tecnologias
+## Responsabilidades
 
-- **Go** (Gin HTTP framework)
-- **MySQL** — persistência de pedidos e outbox
-- **Redis** — reservado para verificações de idempotência
-- **Kafka** — mensageria para eventos da Saga
-- **OpenTelemetry** — tracing distribuído
+- Criar pedidos com status `PENDING`
+- Publicar reply `orders.replies` via Outbox (notifica o orquestrador)
+- Confirmar pedido (`CONFIRMED`) ao receber comando `orders.commands.confirm-order`
+- Cancelar pedido (`CANCELED`) ao receber comando `orders.commands.cancel-order`
+- Garantir idempotencia via Redis (`Idempotency-Key` header) + constraint UNIQUE no MySQL
 
 ## API
 
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| GET | `/health` | Health check |
-| POST | `/v1/orders` | Criar um pedido |
+| Metodo | Rota | Middleware | Descricao |
+|--------|------|------------|-----------|
+| POST | `/v1/orders` | IdempotencyMiddleware, ErrorHandler | Cria um pedido (retorna 202) |
+| GET | `/v1/orders` | ErrorHandler | Lista todos os pedidos |
+| GET | `/health` | — | Health check |
 
 ### Criar Pedido
 
 ```bash
-curl -X POST http://localhost:8080/v1/orders \
+curl -X POST http://localhost:8081/v1/orders \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
   -d '{
-    "userId": "uuid",
+    "userId": "550e8400-e29b-41d4-a716-446655440000",
     "productId": 1,
     "quantity": 2,
-    "total": 99.90,
-    "paymentType": "CREDIT_CARD"
+    "paymentType": "PIX"
   }'
 ```
 
-## Configuração
+> Requer header `Idempotency-Key` (retorna 400 se ausente, 409 se duplicado).
 
-| Variável | Default | Descrição |
+## Topicos Kafka
+
+| Direcao | Topico | Descricao |
+|---------|--------|-----------|
+| Consome | `orders.commands.confirm-order` | Comando do orquestrador para confirmar pedido |
+| Consome | `orders.commands.cancel-order` | Comando do orquestrador para cancelar pedido |
+| Produz (via Outbox) | `orders.replies` | Reply de pedido criado/confirmado/cancelado |
+
+## Configuracao
+
+| Variavel | Default | Descricao |
 |----------|---------|-----------|
-| `SERVER_PORT` | `:8080` | Endereço HTTP |
-| `MYSQL_DSN` | `root:root@tcp(localhost:3307)/orders?parseTime=true` | Connection string MySQL |
-| `REDIS_ADDR` | `localhost:6379` | Endereço Redis |
-| `REDIS_PASS` | (vazio) | Senha Redis |
-| `KAFKA_INVENTORY_TOPIC` | `inventory.insufficient-stock` | Tópico Kafka para eventos de estoque insuficiente |
+| `SERVER_PORT` | `:8081` | Porta do servidor HTTP |
+| `MYSQL_DSN` | `root:root@tcp(localhost:3307)/orders?parseTime=true` | DSN do MySQL |
+| `REDIS_ADDR` | `localhost:6379` | Endereco do Redis |
+| `REDIS_PASS` | (vazio) | Senha do Redis |
+| `REDIS_DB` | `0` | Database do Redis |
+| `KAFKA_BROKERS` | `localhost:29092` | Brokers Kafka |
+| `KAFKA_ORDERS_REPLIES_TOPIC` | `orders.replies` | Topico de replies |
+| `KAFKA_CONFIRM_ORDER_TOPIC` | `orders.commands.confirm-order` | Topico de comando confirmar |
+| `KAFKA_CANCEL_ORDER_TOPIC` | `orders.commands.cancel-order` | Topico de comando cancelar |
+| `OUTBOX_BATCH_SIZE` | `10` | Tamanho do batch do relay |
+| `OTEL_EXPORTER_ENDPOINT` | `localhost:4317` | Endpoint gRPC do OTel Collector |
 
 ## Build & Run
 
 ```bash
-# Build
-go build -o orders-service ./cmd/api
-
-# Run
-go run ./cmd/api
+go build ./...           # Compilar
+go run ./cmd/api         # Executar (requer MySQL 3307, Redis, Kafka 29092)
+go test ./...            # Testes
+go vet ./...             # Lint
 ```
 
 ## Database
 
-O schema está em `INIT.sql`. Duas tabelas principais:
+MySQL (`orders`, porta 3307). Schema em `INIT.sql`.
 
-- **orders** — pedidos com status (`PENDING`, `CONFIRMED`, `CANCELED`)
-- **outbox** — eventos pendentes para publicação via relay (`PENDING`, `PROCESSING`, `SENT`, `FAILED`, `DEAD_LETTER`)
+- **orders** — pedidos com status (`PENDING`, `CONFIRMED`, `CANCELED`), `idempotency_key` UNIQUE
+- **outbox** — eventos pendentes para publicacao via relay (`PENDING`, `PROCESSING`, `SENT`, `FAILED`, `DEAD_LETTER`)
