@@ -11,19 +11,18 @@ src/main/kotlin/br/com/souza/saga_orchestrator/
 ├── adapter/
 │   ├── in/
 │   │   └── consumer/            # Kafka consumers (replies)
-│   │       ├── OrdersReplyConsumer
+│   │       ├── OrdersReplyConsumer     # Trata CREATED (start) e outros status (handleReply)
 │   │       ├── InventoryReplyConsumer
 │   │       └── PaymentsReplyConsumer
 │   └── out/
 │       ├── relay/               # OutboxRelayScheduler (polling 1s, batch 50)
 │       └── saga/                # Saga & SagaHistory persistence (JPA)
-│           └── SagaTimeoutScheduler
 ├── application/
 │   ├── domain/
 │   │   ├── model/               # Saga, SagaStep, ReplyStatus, OutboxEvent
 │   │   └── service/
-│   │       ├── SagaManager      # Logica de orquestracao (StartSaga, HandleReply)
-│   │       └── SagaStateMachine # Tabela de transicoes (step, status) -> (nextStep, command)
+│   │       ├── SagaManager      # Logica de orquestracao (enriquece payload, historico granular)
+│   │       └── SagaStateMachine # Tabela de transicoes (step, status) -> (completedStep, nextStep, command, description)
 │   └── ports/
 │       ├── in/                  # StartSagaUseCase, HandleReplyUseCase
 │       └── out/                 # SagaRepositoryPort, SagaHistoryRepositoryPort, OutboxEventRepositoryPort
@@ -34,36 +33,44 @@ src/main/kotlin/br/com/souza/saga_orchestrator/
 
 - Iniciar saga ao receber reply `orders.replies` (pedido criado)
 - Manter estado da saga em banco de dados (PostgreSQL)
-- Transicionar entre steps da maquina de estados
+- Transicionar entre steps da maquina de estados (granular: `_PENDING`, `_COMPLETED`, `_FAILED`)
 - Emitir comandos via Outbox para os topicos de cada servico
+- Enriquecer payload com `sagaId` e `reason` antes de emitir comandos
 - Registrar historico de todas as transicoes (`saga_history`)
-- Detectar sagas com timeout via scheduler (a cada 60s, default 5 min)
+- Processar replies de confirmacao/cancelamento de pedido (`OrdersReplyConsumer` diferencia `CREATED` de outros status)
 - Idempotencia: ignorar sagas duplicadas por `order_id`
 
 ## Maquina de Estados
 
 ```
 Happy path:
-STARTED -> RESERVING_STOCK -> PROCESSING_PAYMENT -> CONFIRMING_ORDER -> CONFIRMING_RESERVATION -> COMPLETED
+ORDER_CREATED -> RESERVING_STOCK_PENDING -> RESERVING_STOCK_COMPLETED -> PROCESSING_PAYMENT_PENDING ->
+PROCESSING_PAYMENT_COMPLETED -> CONFIRMING_ORDER_PENDING -> CONFIRMING_ORDER_COMPLETED ->
+CONFIRMING_RESERVATION_PENDING -> CONFIRMING_RESERVATION_COMPLETED -> ORDER_COMPLETED
 
 Compensacao (estoque insuficiente):
-RESERVING_STOCK -> CANCELING_ORDER -> FAILED
+ORDER_CREATED -> RESERVING_STOCK_PENDING -> RESERVING_STOCK_FAILED -> CANCELING_ORDER_PENDING ->
+CANCELING_ORDER_COMPLETED -> ORDER_FAILED
 
 Compensacao (pagamento negado):
-PROCESSING_PAYMENT -> RELEASING_STOCK -> CANCELING_ORDER -> FAILED
+... -> RESERVING_STOCK_COMPLETED -> PROCESSING_PAYMENT_PENDING -> PROCESSING_PAYMENT_FAILED ->
+RELEASING_STOCK_PENDING -> RELEASING_STOCK_COMPLETED -> CANCELING_ORDER_PENDING ->
+CANCELING_ORDER_COMPLETED -> ORDER_FAILED
 ```
 
-| Step Atual | Reply Status | Proximo Step | Comando Emitido |
-|---|---|---|---|
-| `STARTED` | `CREATED` | `RESERVING_STOCK` | `inventory.commands.reserve-stock` |
-| `RESERVING_STOCK` | `SUCCESS` | `PROCESSING_PAYMENT` | `payments.commands.process-payment` |
-| `RESERVING_STOCK` | `FAILURE` | `CANCELING_ORDER` | `orders.commands.cancel-order` |
-| `PROCESSING_PAYMENT` | `SUCCESS` | `CONFIRMING_ORDER` | `orders.commands.confirm-order` |
-| `PROCESSING_PAYMENT` | `FAILURE` | `RELEASING_STOCK` | `inventory.commands.release-stock` |
-| `RELEASING_STOCK` | `SUCCESS` | `CANCELING_ORDER` | `orders.commands.cancel-order` |
-| `CONFIRMING_ORDER` | `SUCCESS` | `CONFIRMING_RESERVATION` | `inventory.commands.confirm-reservation` |
-| `CONFIRMING_RESERVATION` | `SUCCESS` | `COMPLETED` | _(terminal)_ |
-| `CANCELING_ORDER` | `SUCCESS` | `FAILED` | _(terminal)_ |
+Cada transicao registra o step completado (`completedStep`) e o proximo step (`nextStep`), com uma `description` descritiva para logging.
+
+| Step Atual | Reply Status | Step Completado | Proximo Step | Comando Emitido |
+|---|---|---|---|---|
+| `ORDER_CREATED` | `CREATED` | `ORDER_CREATED` | `RESERVING_STOCK_PENDING` | `inventory.commands.reserve-stock` |
+| `RESERVING_STOCK_PENDING` | `SUCCESS` | `RESERVING_STOCK_COMPLETED` | `PROCESSING_PAYMENT_PENDING` | `payments.commands.process-payment` |
+| `RESERVING_STOCK_PENDING` | `FAILURE` | `RESERVING_STOCK_FAILED` | `CANCELING_ORDER_PENDING` | `orders.commands.cancel-order` |
+| `PROCESSING_PAYMENT_PENDING` | `SUCCESS` | `PROCESSING_PAYMENT_COMPLETED` | `CONFIRMING_ORDER_PENDING` | `orders.commands.confirm-order` |
+| `PROCESSING_PAYMENT_PENDING` | `FAILURE` | `PROCESSING_PAYMENT_FAILED` | `RELEASING_STOCK_PENDING` | `inventory.commands.release-stock` |
+| `RELEASING_STOCK_PENDING` | `SUCCESS` | `RELEASING_STOCK_COMPLETED` | `CANCELING_ORDER_PENDING` | `orders.commands.cancel-order` |
+| `CONFIRMING_ORDER_PENDING` | `SUCCESS` | `CONFIRMING_ORDER_COMPLETED` | `CONFIRMING_RESERVATION_PENDING` | `inventory.commands.confirm-reservation` |
+| `CONFIRMING_RESERVATION_PENDING` | `SUCCESS` | `CONFIRMING_RESERVATION_COMPLETED` | `ORDER_COMPLETED` | _(terminal)_ |
+| `CANCELING_ORDER_PENDING` | `SUCCESS` | `CANCELING_ORDER_COMPLETED` | `ORDER_FAILED` | _(terminal)_ |
 
 ## Topicos Kafka
 
@@ -71,7 +78,7 @@ PROCESSING_PAYMENT -> RELEASING_STOCK -> CANCELING_ORDER -> FAILED
 
 | Topico | DTO | Consumer |
 |--------|-----|----------|
-| `orders.replies` | `OrderCreatedReply` | `OrdersReplyConsumer` -> `StartSagaUseCase` |
+| `orders.replies` | `OrderCreatedReply` | `OrdersReplyConsumer` -> `StartSagaUseCase` (CREATED) ou `HandleReplyUseCase` (outros) |
 | `inventory.replies` | `SagaReplyEvent` | `InventoryReplyConsumer` -> `HandleReplyUseCase` |
 | `payments.replies` | `SagaReplyEvent` | `PaymentsReplyConsumer` -> `HandleReplyUseCase` |
 
@@ -99,7 +106,6 @@ Configurado via `application.yaml` com override por variaveis de ambiente:
 | `spring.datasource.password` | `saga` | Senha do banco |
 | `spring.kafka.bootstrap-servers` | `localhost:29092` | Brokers Kafka |
 | `server.port` | `8084` | Porta do servidor |
-| `saga.timeout-minutes` | `5` | Timeout para sagas em andamento |
 
 ## Build & Run
 
@@ -115,7 +121,7 @@ Configurado via `application.yaml` com override por variaveis de ambiente:
 PostgreSQL (`saga_db`, porta 5433). Schema em `INIT.sql`. Hibernate `ddl-auto: update`.
 
 - **sagas** — estado da saga com payload JSONB
-- **saga_history** — historico de transicoes (step, status, reason)
+- **saga_history** — historico de transicoes (step, reason)
 - **outbox_events** — eventos pendentes para publicacao via relay
 
 ## Testes

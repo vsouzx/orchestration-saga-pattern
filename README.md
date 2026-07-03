@@ -163,10 +163,11 @@ Orquestrador central que coordena toda a saga. Implementa uma **maquina de estad
 **Responsabilidades:**
 - Iniciar saga ao receber reply `orders.replies` (pedido criado)
 - Manter estado da saga em banco de dados (PostgreSQL)
-- Transicionar entre steps da maquina de estados
+- Transicionar entre steps da maquina de estados (granular: `_PENDING`, `_COMPLETED`, `_FAILED`)
 - Emitir comandos via Outbox para os topicos de cada servico
+- Enriquecer payload com `sagaId` e `reason` antes de emitir comandos
 - Registrar historico de todas as transicoes (`saga_history`)
-- Detectar sagas com timeout via scheduler
+- Processar replies de confirmacao/cancelamento de pedido (`OrdersReplyConsumer` diferencia `CREATED` de outros status)
 - Idempotencia: ignorar sagas duplicadas por `order_id`
 
 **Estrutura (Hexagonal):**
@@ -175,19 +176,18 @@ saga-orchestrator/src/main/kotlin/br/com/souza/saga_orchestrator/
 ├── adapter/
 │   ├── in/
 │   │   └── consumer/            # Kafka consumers (replies)
-│   │       ├── OrdersReplyConsumer
+│   │       ├── OrdersReplyConsumer     # Trata CREATED (start) e outros status (handleReply)
 │   │       ├── InventoryReplyConsumer
 │   │       └── PaymentsReplyConsumer
 │   └── out/
 │       ├── relay/               # OutboxRelayScheduler
-│       └── saga/                # Saga & SagaHistory persistence
-│           └── SagaTimeoutScheduler
+│       └── saga/                # Saga & SagaHistory persistence (JPA)
 ├── application/
 │   ├── domain/
 │   │   ├── model/               # Saga, SagaStep, ReplyStatus, OutboxEvent
 │   │   └── service/
-│   │       ├── SagaManager      # Logica de orquestracao
-│   │       └── SagaStateMachine # Definicao de transicoes
+│   │       ├── SagaManager      # Logica de orquestracao (enriquece payload, registra historico granular)
+│   │       └── SagaStateMachine # Tabela de transicoes com completedStep e description
 │   └── ports/                   # Interfaces (in/out)
 │       ├── in/
 │       │   ├── StartSagaUseCase
@@ -261,7 +261,7 @@ Client            Orders         Orchestrator       Inventory          Payments
 ```
 
 **Status do pedido:** `PENDING` -> `CONFIRMED`
-**Steps da saga:** `STARTED` -> `RESERVING_STOCK` -> `PROCESSING_PAYMENT` -> `CONFIRMING_ORDER` -> `CONFIRMING_RESERVATION` -> `COMPLETED`
+**Steps da saga:** `ORDER_CREATED` -> `RESERVING_STOCK_PENDING` -> `RESERVING_STOCK_COMPLETED` -> `PROCESSING_PAYMENT_PENDING` -> `PROCESSING_PAYMENT_COMPLETED` -> `CONFIRMING_ORDER_PENDING` -> `CONFIRMING_ORDER_COMPLETED` -> `CONFIRMING_RESERVATION_PENDING` -> `CONFIRMING_RESERVATION_COMPLETED` -> `ORDER_COMPLETED`
 
 ### Compensacao - Estoque Insuficiente
 
@@ -300,7 +300,7 @@ Client            Orders         Orchestrator       Inventory
 ```
 
 **Status do pedido:** `PENDING` -> `CANCELED` (reason: estoque insuficiente)
-**Steps da saga:** `STARTED` -> `RESERVING_STOCK` -> `CANCELING_ORDER` -> `FAILED`
+**Steps da saga:** `ORDER_CREATED` -> `RESERVING_STOCK_PENDING` -> `RESERVING_STOCK_FAILED` -> `CANCELING_ORDER_PENDING` -> `CANCELING_ORDER_COMPLETED` -> `ORDER_FAILED`
 
 ### Compensacao - Pagamento Negado
 
@@ -358,7 +358,7 @@ Client            Orders         Orchestrator       Inventory          Payments
 
 **Status do pedido:** `PENDING` -> `CANCELED` (reason: pagamento negado)
 **Status da reserva:** `RESERVED` -> `RELEASED`
-**Steps da saga:** `STARTED` -> `RESERVING_STOCK` -> `PROCESSING_PAYMENT` -> `RELEASING_STOCK` -> `CANCELING_ORDER` -> `FAILED`
+**Steps da saga:** `ORDER_CREATED` -> `RESERVING_STOCK_PENDING` -> `RESERVING_STOCK_COMPLETED` -> `PROCESSING_PAYMENT_PENDING` -> `PROCESSING_PAYMENT_FAILED` -> `RELEASING_STOCK_PENDING` -> `RELEASING_STOCK_COMPLETED` -> `CANCELING_ORDER_PENDING` -> `CANCELING_ORDER_COMPLETED` -> `ORDER_FAILED`
 
 ---
 
@@ -367,62 +367,80 @@ Client            Orders         Orchestrator       Inventory          Payments
 O Saga Orchestrator implementa uma maquina de estados que define todas as transicoes possiveis:
 
 ```
-                          ┌─────────┐
-                          │ STARTED │
-                          └────┬────┘
-                               │ CREATED
-                               ▼
-                     ┌─────────────────┐
-               ┌─────│ RESERVING_STOCK │─────┐
-               │     └─────────────────┘     │
-            SUCCESS                       FAILURE
-               │                             │
-               ▼                             ▼
-    ┌─────────────────────┐         ┌────────────────┐
-    │ PROCESSING_PAYMENT  │         │ CANCELING_ORDER│──────┐
-    └──────────┬──────────┘         └────────────────┘      │
-          ┌────┴────┐                                    SUCCESS
-       SUCCESS   FAILURE                                    │
-          │         │                                       ▼
-          │         ▼                                 ┌──────────┐
-          │  ┌────────────────┐                       │  FAILED  │
-          │  │ RELEASING_STOCK│                       └──────────┘
-          │  └───────┬────────┘
-          │          │ SUCCESS
-          │          ▼
-          │  ┌────────────────┐
-          │  │ CANCELING_ORDER│──────> FAILED
-          │  └────────────────┘
+                            ┌───────────────┐
+                            │ ORDER_CREATED │
+                            └───────┬───────┘
+                                    │ CREATED
+                                    ▼
+                     ┌──────────────────────────┐
+               ┌─────│ RESERVING_STOCK_PENDING  │─────┐
+               │     └──────────────────────────┘     │
+            SUCCESS                                FAILURE
+               │                                      │
+               ▼                                      ▼
+  RESERVING_STOCK_COMPLETED              RESERVING_STOCK_FAILED
+               │                                      │
+               ▼                                      ▼
+  ┌──────────────────────────────┐     ┌──────────────────────────┐
+  │ PROCESSING_PAYMENT_PENDING   │     │ CANCELING_ORDER_PENDING  │──┐
+  └──────────────┬───────────────┘     └──────────────────────────┘  │
+          ┌──────┴──────┐                                         SUCCESS
+       SUCCESS       FAILURE                                        │
+          │             │                                           ▼
+          │             ▼                              CANCELING_ORDER_COMPLETED
+          │ PROCESSING_PAYMENT_FAILED                               │
+          │             │                                           ▼
+          │             ▼                                   ┌──────────────┐
+          │  ┌──────────────────────────┐                   │ ORDER_FAILED │
+          │  │ RELEASING_STOCK_PENDING  │                   └──────────────┘
+          │  └────────────┬─────────────┘
+          │               │ SUCCESS
+          │               ▼
+          │  RELEASING_STOCK_COMPLETED
+          │               │
+          │               ▼
+          │  ┌──────────────────────────┐
+          │  │ CANCELING_ORDER_PENDING  │──────> CANCELING_ORDER_COMPLETED ──> ORDER_FAILED
+          │  └──────────────────────────┘
           │
           ▼
-  ┌─────────────────┐
-  │ CONFIRMING_ORDER│
-  └────────┬────────┘
-           │ SUCCESS
-           ▼
-┌────────────────────────┐
-│ CONFIRMING_RESERVATION │
-└───────────┬────────────┘
-            │ SUCCESS
-            ▼
-      ┌───────────┐
-      │ COMPLETED │
-      └───────────┘
+  PROCESSING_PAYMENT_COMPLETED
+          │
+          ▼
+  ┌──────────────────────────┐
+  │ CONFIRMING_ORDER_PENDING │
+  └────────────┬─────────────┘
+               │ SUCCESS
+               ▼
+  CONFIRMING_ORDER_COMPLETED
+               │
+               ▼
+┌────────────────────────────────┐
+│ CONFIRMING_RESERVATION_PENDING │
+└───────────────┬────────────────┘
+                │ SUCCESS
+                ▼
+  CONFIRMING_RESERVATION_COMPLETED
+                │
+                ▼
+        ┌─────────────────┐
+        │ ORDER_COMPLETED │
+        └─────────────────┘
 ```
 
 **Transicoes definidas no `SagaStateMachine`:**
 
-| Step Atual | Reply Status | Proximo Step | Comando Emitido |
-|---|---|---|---|
-| `STARTED` | `CREATED` | `RESERVING_STOCK` | `inventory.commands.reserve-stock` |
-| `RESERVING_STOCK` | `SUCCESS` | `PROCESSING_PAYMENT` | `payments.commands.process-payment` |
-| `RESERVING_STOCK` | `FAILURE` | `CANCELING_ORDER` | `orders.commands.cancel-order` |
-| `PROCESSING_PAYMENT` | `SUCCESS` | `CONFIRMING_ORDER` | `orders.commands.confirm-order` |
-| `PROCESSING_PAYMENT` | `FAILURE` | `RELEASING_STOCK` | `inventory.commands.release-stock` |
-| `RELEASING_STOCK` | `SUCCESS` | `CANCELING_ORDER` | `orders.commands.cancel-order` |
-| `CONFIRMING_ORDER` | `SUCCESS` | `CONFIRMING_RESERVATION` | `inventory.commands.confirm-reservation` |
-| `CONFIRMING_RESERVATION` | `SUCCESS` | `COMPLETED` | _(terminal)_ |
-| `CANCELING_ORDER` | `SUCCESS` | `FAILED` | _(terminal)_ |
+| Step Atual | Reply Status | Step Completado | Proximo Step | Comando Emitido |
+|---|---|---|---|---|
+| `ORDER_CREATED` | `CREATED` | `ORDER_CREATED` | `RESERVING_STOCK_PENDING` | `inventory.commands.reserve-stock` |
+| `RESERVING_STOCK_PENDING` | `SUCCESS` | `RESERVING_STOCK_COMPLETED` | `PROCESSING_PAYMENT_PENDING` | `payments.commands.process-payment` |
+| `RESERVING_STOCK_PENDING` | `FAILURE` | `RESERVING_STOCK_FAILED` | `CANCELING_ORDER_PENDING` | `orders.commands.cancel-order` |
+| `PROCESSING_PAYMENT_PENDING` | `SUCCESS` | `PROCESSING_PAYMENT_COMPLETED` | `CONFIRMING_ORDER_PENDING` | `orders.commands.confirm-order` |
+| `PROCESSING_PAYMENT_PENDING` | `FAILURE` | `PROCESSING_PAYMENT_FAILED` | `RELEASING_STOCK_PENDING` | `inventory.commands.release-stock` |
+| `RELEASING_STOCK_PENDING` | `SUCCESS` | `RELEASING_STOCK_COMPLETED` | `CANCELING_ORDER_PENDING` | `orders.commands.cancel-order` |
+| `CONFIRMING_ORDER_PENDING` | `SUCCESS` | `CONFIRMING_ORDER_COMPLETED` | `CONFIRMING_RESERVATION_PENDING` | `inventory.commands.confirm-reservation` |
+| `CONFIRMING_RESERVATION_PENDING` | `SUCCESS` | `CONFIRMING_RESERVATION_COMPLETED` | `ORDER_COMPLETED` | _(terminal)_ |
+| `CANCELING_ORDER_PENDING` | `SUCCESS` | `CANCELING_ORDER_COMPLETED` | `ORDER_FAILED` | _(terminal)_ |
 
 ---
 
@@ -434,7 +452,7 @@ Todos os topicos sao criados com **3 particoes** e **retencao de 7 dias**.
 
 | Topico | Produtor | Consumidor | Descricao |
 |---|---|---|---|
-| `orders.replies` | Orders | Orchestrator | Reply de pedido criado/confirmado/cancelado |
+| `orders.replies` | Orders | Orchestrator | Reply de pedido criado (inicia saga) / confirmado / cancelado (avanca saga) |
 | `inventory.replies` | Inventory | Orchestrator | Reply de reserva/liberacao/confirmacao de estoque |
 | `payments.replies` | Payments | Orchestrator | Reply de pagamento autorizado/negado |
 
@@ -488,7 +506,7 @@ payments (
 
 ```sql
 products (
-    id    INT PK AUTO_INCREMENT,
+    id    SERIAL PK,
     name  VARCHAR(255),
     price INTEGER                        -- em centavos
 )
@@ -516,7 +534,7 @@ stock_reservations (
 sagas (
     id              VARCHAR(36) PK,
     order_id        VARCHAR(36),
-    current_step    VARCHAR(50),         -- STARTED, RESERVING_STOCK, ..., COMPLETED, FAILED
+    current_step    VARCHAR(50),         -- ORDER_CREATED, RESERVING_STOCK_PENDING, ..., ORDER_COMPLETED, ORDER_FAILED
     payload         JSONB,
     created_at      TIMESTAMP,
     updated_at      TIMESTAMP
@@ -526,8 +544,7 @@ saga_history (
     id          VARCHAR(36) PK,
     saga_id     VARCHAR(36) FK,
     step        VARCHAR(50),
-    status      VARCHAR(20),
-    reason      VARCHAR(255),
+    reason      TEXT,
     created_at  TIMESTAMP
 )
 ```
@@ -619,7 +636,7 @@ O Inventory Service usa `SELECT FOR UPDATE` ao reservar estoque, prevenindo race
 
 ### 5. State Machine
 
-O `SagaStateMachine` define todas as transicoes validas como um mapa de `(step, replyStatus) -> (nextStep, commandTopic)`. Transicoes a partir de estados terminais (`COMPLETED`, `FAILED`) sao rejeitadas com excecao, garantindo integridade do fluxo.
+O `SagaStateMachine` define todas as transicoes validas como um mapa de `(step, replyStatus) -> (completedStep, nextStep, commandTopic, description)`. Cada transicao registra o step completado e o proximo step, com granularidade `_PENDING`, `_COMPLETED` e `_FAILED`. Transicoes a partir de estados terminais (`ORDER_COMPLETED`, `ORDER_FAILED`) sao rejeitadas com excecao, garantindo integridade do fluxo.
 
 ### 6. Distributed Tracing & Centralized Logging (OpenTelemetry)
 
@@ -889,3 +906,5 @@ Configurado via `application.yaml`:
 | `spring.datasource.password` | `saga` | Senha do banco |
 | `spring.kafka.bootstrap-servers` | `localhost:29092` | Brokers Kafka |
 | `server.port` | `8084` | Porta do servidor |
+
+> A funcionalidade de timeout de sagas foi removida. Sagas em andamento nao sao mais automaticamente compensadas por timeout.

@@ -58,7 +58,7 @@ src/main/kotlin/br/com/souza/inventory_service/
 | Consome | `inventory.commands.reserve-stock` | Comando para reservar estoque |
 | Consome | `inventory.commands.release-stock` | Comando para liberar estoque (compensacao) |
 | Consome | `inventory.commands.confirm-reservation` | Comando para confirmar reserva |
-| Produz (via Outbox) | `inventory.replies` | Reply com status SUCCESS ou FAILURE |
+| Produz (via Outbox) | `inventory.replies` | Reply com status SUCCESS ou FAILURE (event types: `INVENTORY_RESERVED_REPLY`, `INVENTORY_RELEASED_REPLY`, `INVENTORY_CONFIRMED_REPLY`) |
 
 ## Configuracao
 
