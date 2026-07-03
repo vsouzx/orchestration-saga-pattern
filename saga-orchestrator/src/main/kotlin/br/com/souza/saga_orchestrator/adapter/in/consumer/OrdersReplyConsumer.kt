@@ -1,6 +1,8 @@
 package br.com.souza.saga_orchestrator.adapter.`in`.consumer
 
 import br.com.souza.saga_orchestrator.adapter.`in`.consumer.dto.OrderCreatedReply
+import br.com.souza.saga_orchestrator.application.domain.model.ReplyStatus
+import br.com.souza.saga_orchestrator.application.ports.`in`.HandleReplyUseCase
 import br.com.souza.saga_orchestrator.application.ports.`in`.StartSagaUseCase
 import br.com.souza.saga_orchestrator.infrastructure.observability.TraceContextExtractor
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -16,6 +18,7 @@ import org.springframework.stereotype.Component
 @Component
 class OrdersReplyConsumer(
     private val startSaga: StartSagaUseCase,
+    private val handleReply: HandleReplyUseCase,
     private val traceContextExtractor: TraceContextExtractor
 ) {
 
@@ -41,15 +44,23 @@ class OrdersReplyConsumer(
 
         span.makeCurrent().use {
             try {
-                logger.info("Received order created reply", kv("order_id", reply.orderId), kv("status", reply.status))
-
-                if (reply.status != "CREATED") {
-                    logger.info("Ignoring non-CREATED reply", kv("order_id", reply.orderId), kv("status", reply.status))
-                    return
+                if (reply.status == "CREATED") {
+                    logger.info(
+                        "Received order creation reply, starting saga",
+                        kv("order_id", reply.orderId),
+                        kv("reply_status", reply.status)
+                    )
+                    val payload = objectMapper.writeValueAsString(reply)
+                    startSaga.execute(reply.orderId, payload, traceParent)
+                } else {
+                    logger.info(
+                        "Received order reply for saga",
+                        kv("saga_id", reply.sagaId),
+                        kv("order_id", reply.orderId),
+                        kv("reply_status", reply.status)
+                    )
+                    handleReply.execute(reply.sagaId, ReplyStatus.valueOf(reply.status), reply.reason, traceParent)
                 }
-
-                val payload = objectMapper.writeValueAsString(reply)
-                startSaga.execute(reply.orderId, payload, traceParent)
             } finally {
                 span.end()
             }

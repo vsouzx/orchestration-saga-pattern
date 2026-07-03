@@ -22,7 +22,7 @@ class ConfirmReservationService(
     private val logger = LoggerFactory.getLogger(ConfirmReservationService::class.java)
     private val objectMapper = ObjectMapper()
     private val aggregateType = "ORDER"
-    private val eventType = "INVENTORY_REPLY"
+    private val eventType = "INVENTORY_CONFIRMED_REPLY"
 
     @Transactional
     override fun execute(command: ConfirmReservationCommand) {

@@ -11,8 +11,7 @@ CREATE TABLE saga_history (
     id VARCHAR(36) PRIMARY KEY,
     saga_id VARCHAR(36) NOT NULL REFERENCES sagas(id),
     step VARCHAR(50) NOT NULL,
-    status VARCHAR(20) NOT NULL,
-    reason VARCHAR(255),
+    reason TEXT,
     created_at TIMESTAMP DEFAULT NOW()
 );
 

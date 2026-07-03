@@ -24,7 +24,7 @@ class ReleaseStockService(
     private val logger = LoggerFactory.getLogger(ReleaseStockService::class.java)
     private val objectMapper = ObjectMapper()
     private val aggregateType = "ORDER"
-    private val eventType = "INVENTORY_REPLY"
+    private val eventType = "INVENTORY_RELEASED_REPLY"
 
     @Transactional
     override fun execute(command: ReleaseStockCommand){

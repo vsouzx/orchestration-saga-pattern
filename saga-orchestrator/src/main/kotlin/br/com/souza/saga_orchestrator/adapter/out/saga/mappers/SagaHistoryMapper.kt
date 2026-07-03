@@ -8,7 +8,6 @@ fun SagaHistory.toJpaEntity() = SagaHistoryJpaEntity(
     id = id,
     sagaId = sagaId,
     step = step.name,
-    status = status,
     reason = reason,
     createdAt = createdAt
 )
@@ -17,7 +16,6 @@ fun SagaHistoryJpaEntity.toDomain() = SagaHistory(
     id = id,
     sagaId = sagaId,
     step = SagaStep.valueOf(step),
-    status = status,
     reason = reason,
     createdAt = createdAt
 )

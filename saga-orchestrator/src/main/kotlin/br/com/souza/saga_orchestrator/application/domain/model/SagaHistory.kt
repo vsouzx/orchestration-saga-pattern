@@ -6,7 +6,6 @@ data class SagaHistory(
     val id: String,
     val sagaId: String,
     val step: SagaStep,
-    val status: String,
     val reason: String? = null,
     val createdAt: LocalDateTime = LocalDateTime.now()
 )

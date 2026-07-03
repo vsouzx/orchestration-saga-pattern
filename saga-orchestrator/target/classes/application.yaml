@@ -35,6 +35,3 @@ otel:
     exporter: none
   logs:
     exporter: otlp
-
-saga:
-  timeout-minutes: 5

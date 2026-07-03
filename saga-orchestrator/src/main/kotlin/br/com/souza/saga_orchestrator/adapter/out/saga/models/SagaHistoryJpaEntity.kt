@@ -18,9 +18,6 @@ data class SagaHistoryJpaEntity(
     @Column(nullable = false)
     val step: String = "",
 
-    @Column(nullable = false)
-    val status: String = "",
-
     val reason: String? = null,
 
     @Column(name = "created_at", nullable = false)

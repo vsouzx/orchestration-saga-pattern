@@ -25,7 +25,7 @@ class ReserveStockService(
     private final val logger = LoggerFactory.getLogger(ReserveStockService::class.java)
     private final val objectMapper = ObjectMapper()
     private final val aggregateType = "ORDER"
-    private final val eventType = "INVENTORY_REPLY"
+    private final val eventType = "INVENTORY_RESERVED_REPLY"
 
     @Transactional
     override fun execute(command: ReserveStockCommand) {

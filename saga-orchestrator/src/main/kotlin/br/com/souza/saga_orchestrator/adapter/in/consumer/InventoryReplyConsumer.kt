@@ -40,7 +40,7 @@ class InventoryReplyConsumer(
 
         span.makeCurrent().use {
             try {
-                logger.info("Received inventory reply", kv("saga_id", reply.sagaId), kv("status", reply.status))
+                logger.info("Received inventory reply for saga", kv("saga_id", reply.sagaId), kv("reply_status", reply.status))
                 handleReply.execute(reply.sagaId, ReplyStatus.valueOf(reply.status), reply.reason, traceParent)
             } finally {
                 span.end()

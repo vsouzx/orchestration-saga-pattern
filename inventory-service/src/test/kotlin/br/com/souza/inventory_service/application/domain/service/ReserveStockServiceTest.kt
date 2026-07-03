@@ -53,7 +53,7 @@ class ReserveStockServiceTest {
             topic == "inventory.replies" &&
             aggregateId == "order-1" &&
             aggregateType == "ORDER" &&
-            eventType == "INVENTORY_REPLY" &&
+            eventType == "INVENTORY_RESERVED_REPLY" &&
             traceParent == "00-trace-span-01"
         })
     }
@@ -68,7 +68,7 @@ class ReserveStockServiceTest {
         verify(stockRepository, never()).findByProductIdWithLock(any())
         verify(outboxRepository).save(argThat {
             topic == "inventory.replies" &&
-            eventType == "INVENTORY_REPLY" &&
+            eventType == "INVENTORY_RESERVED_REPLY" &&
             payload.contains("FAILURE") &&
             payload.contains("PRODUCT_NOT_FOUND")
         })

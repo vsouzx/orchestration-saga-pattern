@@ -6,7 +6,6 @@ import br.com.souza.saga_orchestrator.adapter.out.saga.repository.SagaJpaReposit
 import br.com.souza.saga_orchestrator.application.domain.model.Saga
 import br.com.souza.saga_orchestrator.application.ports.out.SagaRepositoryPort
 import org.springframework.stereotype.Component
-import java.time.LocalDateTime
 
 @Component
 class SagaRepositoryAdapter(
@@ -21,7 +20,4 @@ class SagaRepositoryAdapter(
 
     override fun findByOrderId(orderId: String): Saga? =
         jpaRepository.findByOrderId(orderId)?.toDomain()
-
-    override fun findTimedOutSagas(olderThan: LocalDateTime): List<Saga> =
-        jpaRepository.findTimedOutSagas(olderThan).map { it.toDomain() }
 }

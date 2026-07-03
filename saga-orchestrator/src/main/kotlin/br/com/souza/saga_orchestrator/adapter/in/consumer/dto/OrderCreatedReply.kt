@@ -9,5 +9,7 @@ data class OrderCreatedReply(
     val productId: Int = 0,
     val quantity: Int = 0,
     val paymentType: String = "",
-    val status: String = ""
+    val status: String = "",
+    val sagaId: String = "",
+    val reason: String? = null
 )
