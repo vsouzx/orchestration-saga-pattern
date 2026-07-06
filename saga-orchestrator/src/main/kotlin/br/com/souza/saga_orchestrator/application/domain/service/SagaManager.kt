@@ -119,38 +119,17 @@ class SagaManager(
         sagaRepository.save(updatedSaga)
 
         // Log the transition with descriptive message and rich structured fields
-        if (transition.nextStep == SagaStep.ORDER_COMPLETED) {
-            logger.info(
-                transition.description,
-                kv("saga_id", saga.id),
-                kv("order_id", saga.orderId),
-                kv("previous_step", previousStep.name),
-                kv("completed_step", transition.completedStep.name),
-                kv("final_step", transition.nextStep.name)
-            )
-        } else if (transition.nextStep == SagaStep.ORDER_FAILED) {
-            logger.info(
-                transition.description,
-                kv("saga_id", saga.id),
-                kv("order_id", saga.orderId),
-                kv("previous_step", previousStep.name),
-                kv("completed_step", transition.completedStep.name),
-                kv("final_step", transition.nextStep.name),
-                kv("reason", reason ?: "unknown")
-            )
-        } else {
-            val logArgs = mutableListOf(
-                kv("saga_id", saga.id),
-                kv("order_id", saga.orderId),
-                kv("previous_step", previousStep.name),
-                kv("completed_step", transition.completedStep.name),
-                kv("next_step", transition.nextStep.name)
-            )
-            if (reason != null) {
-                logArgs.add(kv("reason", reason))
-            }
-            logger.info(transition.description, *logArgs.toTypedArray())
+        val logArgs = mutableListOf(
+            kv("saga_id", saga.id),
+            kv("order_id", saga.orderId),
+            kv("previous_step", previousStep.name),
+            kv("completed_step", transition.completedStep.name),
+            kv("next_step", transition.nextStep.name)
+        )
+        if (reason != null) {
+            logArgs.add(kv("reason", reason))
         }
+        logger.info(transition.description, *logArgs.toTypedArray())
 
         // Emit command if not terminal
         if (transition.commandTopic != null && transition.commandEventType != null) {
