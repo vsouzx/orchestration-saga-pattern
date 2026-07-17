@@ -4,7 +4,7 @@ Implementacao de um sistema de pedidos distribuido utilizando o **Saga Pattern (
 
 ## Desenho arquitetura
 
-<img width="1331" height="917" alt="Image" src="https://github.com/user-attachments/assets/97c072c4-4ee8-4ffa-91e3-54836b6755af" />
+<img width="1418" height="927" alt="Image" src="https://github.com/user-attachments/assets/bc59629e-1bc8-4faa-a7a8-6ff953c05c88" />
 
 ## Indice
 
