@@ -10,10 +10,14 @@ Orquestrador central que coordena toda a saga de pedidos. Implementa uma **maqui
 src/main/kotlin/br/com/souza/saga_orchestrator/
 ├── adapter/
 │   ├── in/
-│   │   └── consumer/            # Kafka consumers (replies)
-│   │       ├── OrdersReplyConsumer     # Trata CREATED (start) e outros status (handleReply)
-│   │       ├── InventoryReplyConsumer
-│   │       └── PaymentsReplyConsumer
+│   │   └── consumer/            # Kafka consumers (replies) - 7 consumers dedicados
+│   │       ├── CreateOrderReplyConsumer       # Trata CREATED (start saga)
+│   │       ├── ConfirmOrderReplyConsumer      # Reply de pedido confirmado
+│   │       ├── CancelOrderReplyConsumer       # Reply de pedido cancelado
+│   │       ├── ReserveStockReplyConsumer      # Reply de reserva de estoque
+│   │       ├── ReleaseStockReplyConsumer      # Reply de liberacao de estoque
+│   │       ├── ConfirmReservationReplyConsumer # Reply de confirmacao de reserva
+│   │       └── ProcessPaymentReplyConsumer    # Reply de pagamento
 │   └── out/
 │       ├── relay/               # OutboxRelayScheduler (polling 1s, batch 50)
 │       └── saga/                # Saga & SagaHistory persistence (JPA)
@@ -31,13 +35,13 @@ src/main/kotlin/br/com/souza/saga_orchestrator/
 
 ## Responsabilidades
 
-- Iniciar saga ao receber reply `orders.replies` (pedido criado)
+- Iniciar saga ao receber reply `orders.replies.create-order` (pedido criado)
 - Manter estado da saga em banco de dados (PostgreSQL)
 - Transicionar entre steps da maquina de estados (granular: `_PENDING`, `_COMPLETED`, `_FAILED`)
 - Emitir comandos via Outbox para os topicos de cada servico
 - Enriquecer payload com `sagaId` e `reason` antes de emitir comandos
 - Registrar historico de todas as transicoes (`saga_history`)
-- Processar replies de confirmacao/cancelamento de pedido (`OrdersReplyConsumer` diferencia `CREATED` de outros status)
+- Processar replies de confirmacao/cancelamento de pedido (consumers dedicados por tipo de evento)
 - Idempotencia: ignorar sagas duplicadas por `order_id`
 
 ## Maquina de Estados
@@ -74,13 +78,17 @@ Cada transicao registra o step completado (`completedStep`) e o proximo step (`n
 
 ## Topicos Kafka
 
-### Consome (replies)
+### Consome (replies) - 7 consumers dedicados
 
 | Topico | DTO | Consumer |
 |--------|-----|----------|
-| `orders.replies` | `OrderCreatedReply` | `OrdersReplyConsumer` -> `StartSagaUseCase` (CREATED) ou `HandleReplyUseCase` (outros) |
-| `inventory.replies` | `SagaReplyEvent` | `InventoryReplyConsumer` -> `HandleReplyUseCase` |
-| `payments.replies` | `SagaReplyEvent` | `PaymentsReplyConsumer` -> `HandleReplyUseCase` |
+| `orders.replies.create-order` | `OrderCreatedReply` | `CreateOrderReplyConsumer` -> `StartSagaUseCase` |
+| `orders.replies.confirm-order` | `SagaReplyEvent` | `ConfirmOrderReplyConsumer` -> `HandleReplyUseCase` |
+| `orders.replies.cancel-order` | `SagaReplyEvent` | `CancelOrderReplyConsumer` -> `HandleReplyUseCase` |
+| `inventory.replies.reserve-stock` | `SagaReplyEvent` | `ReserveStockReplyConsumer` -> `HandleReplyUseCase` |
+| `inventory.replies.release-stock` | `SagaReplyEvent` | `ReleaseStockReplyConsumer` -> `HandleReplyUseCase` |
+| `inventory.replies.confirm-reservation` | `SagaReplyEvent` | `ConfirmReservationReplyConsumer` -> `HandleReplyUseCase` |
+| `payments.replies.process-payment` | `SagaReplyEvent` | `ProcessPaymentReplyConsumer` -> `HandleReplyUseCase` |
 
 ### Produz (comandos via Outbox)
 

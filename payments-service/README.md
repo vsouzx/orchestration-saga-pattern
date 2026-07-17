@@ -27,7 +27,7 @@ payments-service/
 
 - Consumir comando `payments.commands.process-payment` e processar pagamento
 - Avaliar regras de pagamento (ex: negar BOLETO, negar cartao > 10.000)
-- Publicar reply em `payments.replies` com status `SUCCESS` ou `FAILURE` via Outbox
+- Publicar reply em `payments.replies.process-payment` com status `SUCCESS` ou `FAILURE` via Outbox
 - Idempotencia via constraint de banco (`order_id UNIQUE`)
 
 ## API
@@ -43,7 +43,7 @@ payments-service/
 | Direcao | Topico | Descricao |
 |---------|--------|-----------|
 | Consome | `payments.commands.process-payment` | Comando do orquestrador para processar pagamento |
-| Produz (via Outbox) | `payments.replies` | Reply com status SUCCESS ou FAILURE |
+| Produz (via Outbox) | `payments.replies.process-payment` | Reply com status SUCCESS ou FAILURE |
 
 ## Configuracao
 
@@ -53,7 +53,7 @@ payments-service/
 | `MYSQL_DSN` | `root:root@tcp(localhost:3308)/payments?parseTime=true` | DSN do MySQL |
 | `KAFKA_BROKERS` | `localhost:29092` | Brokers Kafka |
 | `KAFKA_PROCESS_PAYMENT_TOPIC` | `payments.commands.process-payment` | Topico de comando |
-| `KAFKA_PAYMENTS_REPLIES_TOPIC` | `payments.replies` | Topico de replies |
+| `KAFKA_PAYMENTS_REPLIES_TOPIC` | `payments.replies.process-payment` | Topico de replies |
 | `OUTBOX_BATCH_SIZE` | `10` | Tamanho do batch do relay |
 | `OTEL_EXPORTER_ENDPOINT` | `localhost:4317` | Endpoint gRPC do OTel Collector |
 

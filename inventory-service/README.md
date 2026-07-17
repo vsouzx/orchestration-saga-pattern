@@ -38,7 +38,7 @@ src/main/kotlin/br/com/souza/inventory_service/
 - Reservar estoque ao receber comando `inventory.commands.reserve-stock`
 - Liberar estoque (compensacao) ao receber comando `inventory.commands.release-stock`
 - Confirmar reserva ao receber comando `inventory.commands.confirm-reservation`
-- Publicar replies em `inventory.replies` com status `SUCCESS` ou `FAILURE`
+- Publicar replies em topicos dedicados por tipo de evento com status `SUCCESS` ou `FAILURE`
 - Pessimistic locking (`SELECT FOR UPDATE`) para controle de concorrencia
 
 ## API
@@ -58,7 +58,9 @@ src/main/kotlin/br/com/souza/inventory_service/
 | Consome | `inventory.commands.reserve-stock` | Comando para reservar estoque |
 | Consome | `inventory.commands.release-stock` | Comando para liberar estoque (compensacao) |
 | Consome | `inventory.commands.confirm-reservation` | Comando para confirmar reserva |
-| Produz (via Outbox) | `inventory.replies` | Reply com status SUCCESS ou FAILURE (event types: `INVENTORY_RESERVED_REPLY`, `INVENTORY_RELEASED_REPLY`, `INVENTORY_CONFIRMED_REPLY`) |
+| Produz (via Outbox) | `inventory.replies.reserve-stock` | Reply de reserva de estoque (SUCCESS ou FAILURE) |
+| Produz (via Outbox) | `inventory.replies.release-stock` | Reply de liberacao de estoque (SUCCESS ou FAILURE) |
+| Produz (via Outbox) | `inventory.replies.confirm-reservation` | Reply de confirmacao de reserva (SUCCESS ou FAILURE) |
 
 ## Configuracao
 

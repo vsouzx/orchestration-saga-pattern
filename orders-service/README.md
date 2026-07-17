@@ -30,7 +30,7 @@ orders-service/
 ## Responsabilidades
 
 - Criar pedidos com status `PENDING`
-- Publicar reply `orders.replies` via Outbox (notifica o orquestrador)
+- Publicar replies via Outbox em topicos dedicados por tipo de evento (notifica o orquestrador)
 - Confirmar pedido (`CONFIRMED`) ao receber comando `orders.commands.confirm-order`
 - Cancelar pedido (`CANCELED`) ao receber comando `orders.commands.cancel-order`
 - Garantir idempotencia via Redis (`Idempotency-Key` header) + constraint UNIQUE no MySQL
@@ -65,7 +65,9 @@ curl -X POST http://localhost:8081/v1/orders \
 |---------|--------|-----------|
 | Consome | `orders.commands.confirm-order` | Comando do orquestrador para confirmar pedido |
 | Consome | `orders.commands.cancel-order` | Comando do orquestrador para cancelar pedido |
-| Produz (via Outbox) | `orders.replies` | Reply de pedido criado/confirmado/cancelado |
+| Produz (via Outbox) | `orders.replies.create-order` | Reply de pedido criado |
+| Produz (via Outbox) | `orders.replies.confirm-order` | Reply de pedido confirmado |
+| Produz (via Outbox) | `orders.replies.cancel-order` | Reply de pedido cancelado |
 
 ## Configuracao
 
@@ -77,7 +79,9 @@ curl -X POST http://localhost:8081/v1/orders \
 | `REDIS_PASS` | (vazio) | Senha do Redis |
 | `REDIS_DB` | `0` | Database do Redis |
 | `KAFKA_BROKERS` | `localhost:29092` | Brokers Kafka |
-| `KAFKA_ORDERS_REPLIES_TOPIC` | `orders.replies` | Topico de replies |
+| `KAFKA_CREATE_ORDER_REPLIES_TOPIC` | `orders.replies.create-order` | Topico de reply de pedido criado |
+| `KAFKA_CONFIRM_ORDER_REPLIES_TOPIC` | `orders.replies.confirm-order` | Topico de reply de pedido confirmado |
+| `KAFKA_CANCEL_ORDER_REPLIES_TOPIC` | `orders.replies.cancel-order` | Topico de reply de pedido cancelado |
 | `KAFKA_CONFIRM_ORDER_TOPIC` | `orders.commands.confirm-order` | Topico de comando confirmar |
 | `KAFKA_CANCEL_ORDER_TOPIC` | `orders.commands.cancel-order` | Topico de comando cancelar |
 | `OUTBOX_BATCH_SIZE` | `10` | Tamanho do batch do relay |

@@ -60,7 +60,7 @@ Ponto de entrada do sistema. Recebe requisicoes HTTP para criacao de pedidos e p
 
 **Responsabilidades:**
 - Criar pedidos com status `PENDING`
-- Publicar reply `orders.replies` via Outbox (notifica o orquestrador)
+- Publicar replies via Outbox em topicos dedicados por tipo de evento (notifica o orquestrador)
 - Confirmar pedido (`CONFIRMED`) ao receber comando `orders.commands.confirm-order`
 - Cancelar pedido (`CANCELED`) ao receber comando `orders.commands.cancel-order`
 - Garantir idempotencia via Redis (`Idempotency-Key` header)
@@ -95,7 +95,7 @@ Gerencia produtos, estoque e reservas. Implementa **Arquitetura Hexagonal** com 
 - Reservar estoque ao receber comando `inventory.commands.reserve-stock`
 - Liberar estoque (compensacao) ao receber comando `inventory.commands.release-stock`
 - Confirmar reserva ao receber comando `inventory.commands.confirm-reservation`
-- Publicar replies em `inventory.replies` com status `SUCCESS` ou `FAILURE`
+- Publicar replies em topicos dedicados por tipo de evento com status `SUCCESS` ou `FAILURE`
 - Pessimistic locking (`SELECT FOR UPDATE`) para controle de concorrencia
 
 **Estrutura (Hexagonal):**
@@ -135,7 +135,7 @@ Processa pagamentos com base em regras de negocio. Opera exclusivamente via coma
 **Responsabilidades:**
 - Consumir comando `payments.commands.process-payment` e processar pagamento
 - Avaliar regras de pagamento (ex: negar BOLETO, negar cartao > 10.000)
-- Publicar reply em `payments.replies` com status `SUCCESS` ou `FAILURE` via Outbox
+- Publicar reply em `payments.replies.process-payment` com status `SUCCESS` ou `FAILURE` via Outbox
 - Idempotencia via constraint de banco (`order_id UNIQUE`)
 
 **Estrutura:**
@@ -161,13 +161,13 @@ payments-service/
 Orquestrador central que coordena toda a saga. Implementa uma **maquina de estados** que define as transicoes entre steps e emite comandos para os servicos participantes. Consome replies de todos os servicos e avanca ou compensa a saga conforme o resultado.
 
 **Responsabilidades:**
-- Iniciar saga ao receber reply `orders.replies` (pedido criado)
+- Iniciar saga ao receber reply `orders.replies.create-order` (pedido criado)
 - Manter estado da saga em banco de dados (PostgreSQL)
 - Transicionar entre steps da maquina de estados (granular: `_PENDING`, `_COMPLETED`, `_FAILED`)
 - Emitir comandos via Outbox para os topicos de cada servico
 - Enriquecer payload com `sagaId` e `reason` antes de emitir comandos
 - Registrar historico de todas as transicoes (`saga_history`)
-- Processar replies de confirmacao/cancelamento de pedido (`OrdersReplyConsumer` diferencia `CREATED` de outros status)
+- Processar replies de confirmacao/cancelamento de pedido (consumers dedicados por tipo de evento)
 - Idempotencia: ignorar sagas duplicadas por `order_id`
 
 **Estrutura (Hexagonal):**
@@ -176,9 +176,13 @@ saga-orchestrator/src/main/kotlin/br/com/souza/saga_orchestrator/
 ├── adapter/
 │   ├── in/
 │   │   └── consumer/            # Kafka consumers (replies)
-│   │       ├── OrdersReplyConsumer     # Trata CREATED (start) e outros status (handleReply)
-│   │       ├── InventoryReplyConsumer
-│   │       └── PaymentsReplyConsumer
+│   │       ├── CreateOrderReplyConsumer       # Trata CREATED (start saga)
+│   │       ├── ConfirmOrderReplyConsumer      # Reply de pedido confirmado
+│   │       ├── CancelOrderReplyConsumer       # Reply de pedido cancelado
+│   │       ├── ReserveStockReplyConsumer      # Reply de reserva de estoque
+│   │       ├── ReleaseStockReplyConsumer      # Reply de liberacao de estoque
+│   │       ├── ConfirmReservationReplyConsumer # Reply de confirmacao de reserva
+│   │       └── ProcessPaymentReplyConsumer    # Reply de pagamento
 │   └── out/
 │       ├── relay/               # OutboxRelayScheduler
 │       └── saga/                # Saga & SagaHistory persistence (JPA)
@@ -213,7 +217,8 @@ Client            Orders         Orchestrator       Inventory          Payments
   │   201 Created    │                 │                 │                 │
   │<─────────────────│                 │                 │                 │
   │                  │                 │                 │                 │
-  │                  │ orders.replies  │                 │                 │
+  │                  │orders.replies   │                 │                 │
+  │                  │.create-order    │                 │                 │
   │                  │ (CREATED)       │                 │                 │
   │                  │───────────────>│                 │                 │
   │                  │                 │                 │                 │
@@ -224,6 +229,7 @@ Client            Orders         Orchestrator       Inventory          Payments
   │                  │                 │                 │ Reserva estoque │
   │                  │                 │                 │                 │
   │                  │                 │inventory.replies│                 │
+  │                  │                 │.reserve-stock   │                 │
   │                  │                 │ (SUCCESS)       │                 │
   │                  │                 │<────────────────│                 │
   │                  │                 │                 │                 │
@@ -233,8 +239,9 @@ Client            Orders         Orchestrator       Inventory          Payments
   │                  │                 │                 │                 │
   │                  │                 │                 │  Aprova pgto    │
   │                  │                 │                 │                 │
-  │                  │                 │         payments.replies          │
-  │                  │                 │          (SUCCESS)                │
+  │                  │                 │  payments.replies                 │
+  │                  │                 │  .process-payment                 │
+  │                  │                 │   (SUCCESS)                       │
   │                  │                 │<──────────────────────────────────│
   │                  │                 │                 │                 │
   │                  │orders.commands  │                 │                 │
@@ -243,7 +250,8 @@ Client            Orders         Orchestrator       Inventory          Payments
   │                  │                 │                 │                 │
   │                  │ Confirma pedido │                 │                 │
   │                  │                 │                 │                 │
-  │                  │ orders.replies  │                 │                 │
+  │                  │orders.replies   │                 │                 │
+  │                  │.confirm-order   │                 │                 │
   │                  │ (SUCCESS)       │                 │                 │
   │                  │───────────────>│                 │                 │
   │                  │                 │                 │                 │
@@ -254,6 +262,7 @@ Client            Orders         Orchestrator       Inventory          Payments
   │                  │                 │                 │Confirma reserva │
   │                  │                 │                 │                 │
   │                  │                 │inventory.replies│                 │
+  │                  │                 │.confirm-reserv. │                 │
   │                  │                 │ (SUCCESS)       │                 │
   │                  │                 │<────────────────│                 │
   │                  │                 │                 │                 │
@@ -272,7 +281,8 @@ Client            Orders         Orchestrator       Inventory
   │─────────────────>│                 │                 │
   │   201 Created    │                 │                 │
   │<─────────────────│                 │                 │
-  │                  │ orders.replies  │                 │
+  │                  │orders.replies   │                 │
+  │                  │.create-order    │                 │
   │                  │ (CREATED)       │                 │
   │                  │───────────────>│                 │
   │                  │                 │                 │
@@ -283,6 +293,7 @@ Client            Orders         Orchestrator       Inventory
   │                  │                 │                 │ Estoque insuficiente
   │                  │                 │                 │
   │                  │                 │inventory.replies│
+  │                  │                 │.reserve-stock   │
   │                  │                 │ (FAILURE)       │
   │                  │                 │<────────────────│
   │                  │                 │                 │
@@ -292,7 +303,8 @@ Client            Orders         Orchestrator       Inventory
   │                  │                 │                 │
   │                  │ Cancela pedido  │                 │
   │                  │                 │                 │
-  │                  │ orders.replies  │                 │
+  │                  │orders.replies   │                 │
+  │                  │.cancel-order    │                 │
   │                  │ (SUCCESS)       │                 │
   │                  │───────────────>│                 │
   │                  │                 │                 │
@@ -311,7 +323,8 @@ Client            Orders         Orchestrator       Inventory          Payments
   │─────────────────>│                 │                 │                 │
   │   201 Created    │                 │                 │                 │
   │<─────────────────│                 │                 │                 │
-  │                  │ orders.replies  │                 │                 │
+  │                  │orders.replies   │                 │                 │
+  │                  │.create-order    │                 │                 │
   │                  │ (CREATED)       │                 │                 │
   │                  │───────────────>│                 │                 │
   │                  │                 │                 │                 │
@@ -320,6 +333,7 @@ Client            Orders         Orchestrator       Inventory          Payments
   │                  │                 │────────────────>│                 │
   │                  │                 │                 │                 │
   │                  │                 │inventory.replies│                 │
+  │                  │                 │.reserve-stock   │                 │
   │                  │                 │ (SUCCESS)       │                 │
   │                  │                 │<────────────────│                 │
   │                  │                 │                 │                 │
@@ -329,8 +343,9 @@ Client            Orders         Orchestrator       Inventory          Payments
   │                  │                 │                 │                 │
   │                  │                 │                 │   Nega pgto     │
   │                  │                 │                 │                 │
-  │                  │                 │         payments.replies          │
-  │                  │                 │          (FAILURE)                │
+  │                  │                 │  payments.replies                 │
+  │                  │                 │  .process-payment                 │
+  │                  │                 │   (FAILURE)                       │
   │                  │                 │<──────────────────────────────────│
   │                  │                 │                 │                 │
   │                  │                 │ inventory.commands               │
@@ -340,6 +355,7 @@ Client            Orders         Orchestrator       Inventory          Payments
   │                  │                 │                 │ Libera estoque  │
   │                  │                 │                 │                 │
   │                  │                 │inventory.replies│                 │
+  │                  │                 │.release-stock   │                 │
   │                  │                 │ (SUCCESS)       │                 │
   │                  │                 │<────────────────│                 │
   │                  │                 │                 │                 │
@@ -349,7 +365,8 @@ Client            Orders         Orchestrator       Inventory          Payments
   │                  │                 │                 │                 │
   │                  │ Cancela pedido  │                 │                 │
   │                  │                 │                 │                 │
-  │                  │ orders.replies  │                 │                 │
+  │                  │orders.replies   │                 │                 │
+  │                  │.cancel-order    │                 │                 │
   │                  │ (SUCCESS)       │                 │                 │
   │                  │───────────────>│                 │                 │
   │                  │                 │                 │                 │
@@ -452,9 +469,13 @@ Todos os topicos sao criados com **3 particoes** e **retencao de 7 dias**.
 
 | Topico | Produtor | Consumidor | Descricao |
 |---|---|---|---|
-| `orders.replies` | Orders | Orchestrator | Reply de pedido criado (inicia saga) / confirmado / cancelado (avanca saga) |
-| `inventory.replies` | Inventory | Orchestrator | Reply de reserva/liberacao/confirmacao de estoque |
-| `payments.replies` | Payments | Orchestrator | Reply de pagamento autorizado/negado |
+| `orders.replies.create-order` | Orders | Orchestrator | Reply de pedido criado (inicia saga) |
+| `orders.replies.confirm-order` | Orders | Orchestrator | Reply de pedido confirmado |
+| `orders.replies.cancel-order` | Orders | Orchestrator | Reply de pedido cancelado |
+| `inventory.replies.reserve-stock` | Inventory | Orchestrator | Reply de reserva de estoque |
+| `inventory.replies.release-stock` | Inventory | Orchestrator | Reply de liberacao de estoque |
+| `inventory.replies.confirm-reservation` | Inventory | Orchestrator | Reply de confirmacao de reserva |
+| `payments.replies.process-payment` | Payments | Orchestrator | Reply de pagamento autorizado/negado |
 
 ### Command Topics (orquestrador -> servicos)
 
@@ -865,7 +886,9 @@ Os logs enviados ao Loki incluem `trace_id` e `span_id` como atributos. O Grafan
 | `REDIS_PASS` | (vazio) | Senha do Redis |
 | `REDIS_DB` | `0` | Database do Redis |
 | `KAFKA_BROKERS` | `localhost:29092` | Brokers Kafka |
-| `KAFKA_ORDERS_REPLIES_TOPIC` | `orders.replies` | Topico de replies do pedido |
+| `KAFKA_CREATE_ORDER_REPLIES_TOPIC` | `orders.replies.create-order` | Topico de reply de pedido criado |
+| `KAFKA_CONFIRM_ORDER_REPLIES_TOPIC` | `orders.replies.confirm-order` | Topico de reply de pedido confirmado |
+| `KAFKA_CANCEL_ORDER_REPLIES_TOPIC` | `orders.replies.cancel-order` | Topico de reply de pedido cancelado |
 | `KAFKA_CONFIRM_ORDER_TOPIC` | `orders.commands.confirm-order` | Topico de comando para confirmar |
 | `KAFKA_CANCEL_ORDER_TOPIC` | `orders.commands.cancel-order` | Topico de comando para cancelar |
 | `OUTBOX_BATCH_SIZE` | `10` | Tamanho do batch do relay |
@@ -879,7 +902,7 @@ Os logs enviados ao Loki incluem `trace_id` e `span_id` como atributos. O Grafan
 | `MYSQL_DSN` | `root:root@tcp(localhost:3308)/payments?parseTime=true` | DSN do MySQL |
 | `KAFKA_BROKERS` | `localhost:29092` | Brokers Kafka |
 | `KAFKA_PROCESS_PAYMENT_TOPIC` | `payments.commands.process-payment` | Topico de comando para processar pagamento |
-| `KAFKA_PAYMENTS_REPLIES_TOPIC` | `payments.replies` | Topico de replies do pagamento |
+| `KAFKA_PAYMENTS_REPLIES_TOPIC` | `payments.replies.process-payment` | Topico de replies do pagamento |
 | `OUTBOX_BATCH_SIZE` | `10` | Tamanho do batch do relay |
 | `OTEL_EXPORTER_ENDPOINT` | `localhost:4317` | Endpoint gRPC do OTel Collector |
 
