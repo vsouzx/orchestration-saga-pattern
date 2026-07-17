@@ -51,11 +51,11 @@ class ConfirmReservationService(
             aggregateId = command.orderId,
             aggregateType = aggregateType,
             eventType = eventType,
-            topic = "inventory.replies",
+            topic = "inventory.replies.confirm-reservation",
             payload = payload,
             traceParent = command.traceParent
         )
         outboxRepository.save(outboxEvent)
-        logger.info("Outbox event saved", kv("topic", "inventory.replies"), kv("saga_id", command.sagaId), kv("order_id", command.orderId), kv("status", "SUCCESS"))
+        logger.info("Outbox event saved", kv("topic", "inventory.replies.confirm-reservation"), kv("saga_id", command.sagaId), kv("order_id", command.orderId), kv("status", "SUCCESS"))
     }
 }

@@ -73,11 +73,11 @@ class ReleaseStockService(
             aggregateId = command.orderId,
             aggregateType = aggregateType,
             eventType = eventType,
-            topic = "inventory.replies",
+            topic = "inventory.replies.release-stock",
             payload = payload,
             traceParent = command.traceParent
         )
         outboxRepository.save(outboxEvent)
-        logger.info("Outbox event saved", kv("topic", "inventory.replies"), kv("saga_id", command.sagaId), kv("order_id", command.orderId))
+        logger.info("Outbox event saved", kv("topic", "inventory.replies.release-stock"), kv("saga_id", command.sagaId), kv("order_id", command.orderId))
     }
 }

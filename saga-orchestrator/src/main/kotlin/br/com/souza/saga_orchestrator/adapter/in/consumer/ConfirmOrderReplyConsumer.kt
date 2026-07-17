@@ -2,6 +2,7 @@ package br.com.souza.saga_orchestrator.adapter.`in`.consumer
 
 import br.com.souza.saga_orchestrator.adapter.`in`.consumer.dto.SagaReplyEvent
 import br.com.souza.saga_orchestrator.application.domain.model.ReplyStatus
+import br.com.souza.saga_orchestrator.application.domain.model.SagaStep
 import br.com.souza.saga_orchestrator.application.ports.`in`.HandleReplyUseCase
 import br.com.souza.saga_orchestrator.infrastructure.observability.TraceContextExtractor
 import io.opentelemetry.api.GlobalOpenTelemetry
@@ -14,16 +15,16 @@ import org.springframework.messaging.handler.annotation.Payload
 import org.springframework.stereotype.Component
 
 @Component
-class InventoryReplyConsumer(
+class ConfirmOrderReplyConsumer(
     private val handleReply: HandleReplyUseCase,
     private val traceContextExtractor: TraceContextExtractor
 ) {
 
-    private val logger = LoggerFactory.getLogger(InventoryReplyConsumer::class.java)
+    private val logger = LoggerFactory.getLogger(ConfirmOrderReplyConsumer::class.java)
     private val tracer = GlobalOpenTelemetry.getTracer("saga-orchestrator")
 
     @KafkaListener(
-        topics = ["inventory.replies"],
+        topics = ["orders.replies.confirm-order"],
         groupId = "saga-orchestrator",
         containerFactory = "sagaReplyKafkaListenerContainerFactory"
     )
@@ -33,15 +34,15 @@ class InventoryReplyConsumer(
     ) {
         val extractedContext = traceContextExtractor.extractContext(traceParent)
 
-        val span = tracer.spanBuilder("inventory.replies process")
+        val span = tracer.spanBuilder("orders.replies.confirm-order process")
             .setParent(extractedContext)
             .setSpanKind(SpanKind.CONSUMER)
             .startSpan()
 
         span.makeCurrent().use {
             try {
-                logger.info("Received inventory reply for saga", kv("saga_id", reply.sagaId), kv("reply_status", reply.status))
-                handleReply.execute(reply.sagaId, ReplyStatus.valueOf(reply.status), reply.reason, traceParent)
+                logger.info("Received confirm-order reply", kv("saga_id", reply.sagaId), kv("reply_status", reply.status))
+                handleReply.execute(reply.sagaId, SagaStep.CONFIRMING_ORDER_PENDING, ReplyStatus.valueOf(reply.status), reply.reason, traceParent)
             } finally {
                 span.end()
             }

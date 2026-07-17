@@ -8,7 +8,7 @@ kafka:
   brokers:
     - "localhost:29092"
   process_payment_topic: "payments.commands.process-payment"
-  payments_replies_topic: "payments.replies"
+  payments_replies_topic: "payments.replies.process-payment"
 
 outbox:
   batch_size: 10

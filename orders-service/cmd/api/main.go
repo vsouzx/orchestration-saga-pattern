@@ -71,12 +71,18 @@ func main() {
 	}
 	defer redis.Close()
 
-	// kafka producer — single topic: orders.replies
-	ordersRepliesWriter := config.NewKafkaProducer(cfg.Kafka.Brokers, cfg.Kafka.OrdersRepliesTopic)
-	defer ordersRepliesWriter.Close()
+	// kafka producers — per-command reply topics
+	createOrderWriter := config.NewKafkaProducer(cfg.Kafka.Brokers, cfg.Kafka.CreateOrderRepliesTopic)
+	defer createOrderWriter.Close()
+	confirmOrderWriter := config.NewKafkaProducer(cfg.Kafka.Brokers, cfg.Kafka.ConfirmOrderRepliesTopic)
+	defer confirmOrderWriter.Close()
+	cancelOrderWriter := config.NewKafkaProducer(cfg.Kafka.Brokers, cfg.Kafka.CancelOrderRepliesTopic)
+	defer cancelOrderWriter.Close()
 
 	writers := map[string]*kafka.Writer{
-		cfg.Kafka.OrdersRepliesTopic: ordersRepliesWriter,
+		cfg.Kafka.CreateOrderRepliesTopic:  createOrderWriter,
+		cfg.Kafka.ConfirmOrderRepliesTopic: confirmOrderWriter,
+		cfg.Kafka.CancelOrderRepliesTopic:  cancelOrderWriter,
 	}
 
 	// repositories

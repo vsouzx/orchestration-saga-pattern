@@ -112,19 +112,39 @@ services:
       - |
         echo "Criando topicos Kafka (orchestration)..."
 
-        # Reply topics
+        # Reply topics (per-command)
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
-          --topic orders.replies \
+          --topic orders.replies.create-order \
           --partitions 3 \
           --config retention.ms=604800000
 
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
-          --topic inventory.replies \
+          --topic orders.replies.confirm-order \
           --partitions 3 \
           --config retention.ms=604800000
 
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
-          --topic payments.replies \
+          --topic orders.replies.cancel-order \
+          --partitions 3 \
+          --config retention.ms=604800000
+
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic inventory.replies.reserve-stock \
+          --partitions 3 \
+          --config retention.ms=604800000
+
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic inventory.replies.release-stock \
+          --partitions 3 \
+          --config retention.ms=604800000
+
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic inventory.replies.confirm-reservation \
+          --partitions 3 \
+          --config retention.ms=604800000
+
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic payments.replies.process-payment \
           --partitions 3 \
           --config retention.ms=604800000
 

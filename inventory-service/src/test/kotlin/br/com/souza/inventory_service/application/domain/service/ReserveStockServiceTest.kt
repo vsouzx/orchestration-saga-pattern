@@ -50,7 +50,7 @@ class ReserveStockServiceTest {
             orderId == "order-1" && productId == 1 && quantity == 2 && status == ReservationStatus.RESERVED
         })
         verify(outboxRepository).save(argThat {
-            topic == "inventory.replies" &&
+            topic == "inventory.replies.reserve-stock" &&
             aggregateId == "order-1" &&
             aggregateType == "ORDER" &&
             eventType == "INVENTORY_RESERVED_REPLY" &&
@@ -67,7 +67,7 @@ class ReserveStockServiceTest {
 
         verify(stockRepository, never()).findByProductIdWithLock(any())
         verify(outboxRepository).save(argThat {
-            topic == "inventory.replies" &&
+            topic == "inventory.replies.reserve-stock" &&
             eventType == "INVENTORY_RESERVED_REPLY" &&
             payload.contains("FAILURE") &&
             payload.contains("PRODUCT_NOT_FOUND")
@@ -84,7 +84,7 @@ class ReserveStockServiceTest {
         service.execute(command)
 
         verify(outboxRepository).save(argThat {
-            topic == "inventory.replies" &&
+            topic == "inventory.replies.reserve-stock" &&
             payload.contains("FAILURE") &&
             payload.contains("STOCK_NOT_FOUND")
         })
@@ -103,7 +103,7 @@ class ReserveStockServiceTest {
 
         verify(stockRepository, never()).save(any())
         verify(outboxRepository).save(argThat {
-            topic == "inventory.replies" &&
+            topic == "inventory.replies.reserve-stock" &&
             payload.contains("FAILURE") &&
             payload.contains("INSUFFICIENT_STOCK")
         })

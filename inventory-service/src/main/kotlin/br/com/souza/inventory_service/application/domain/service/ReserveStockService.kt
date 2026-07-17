@@ -89,12 +89,12 @@ class ReserveStockService(
             aggregateId = command.orderId,
             aggregateType = aggregateType,
             eventType = eventType,
-            topic = "inventory.replies",
+            topic = "inventory.replies.reserve-stock",
             payload = payload,
             traceParent = command.traceParent
         )
         outboxRepository.save(outboxEvent)
-        logger.info("Outbox event saved", kv("topic", "inventory.replies"), kv("saga_id", command.sagaId), kv("order_id", command.orderId), kv("status", "SUCCESS"))
+        logger.info("Outbox event saved", kv("topic", "inventory.replies.reserve-stock"), kv("saga_id", command.sagaId), kv("order_id", command.orderId), kv("status", "SUCCESS"))
     }
 
     private fun saveFailureEvent(command: ReserveStockCommand, reason: String) {
@@ -112,11 +112,11 @@ class ReserveStockService(
             aggregateId = command.orderId,
             aggregateType = aggregateType,
             eventType = eventType,
-            topic = "inventory.replies",
+            topic = "inventory.replies.reserve-stock",
             payload = payload,
             traceParent = command.traceParent
         )
         outboxRepository.save(outboxEvent)
-        logger.info("Outbox failure event saved", kv("topic", "inventory.replies"), kv("saga_id", command.sagaId), kv("order_id", command.orderId), kv("reason", reason))
+        logger.info("Outbox failure event saved", kv("topic", "inventory.replies.reserve-stock"), kv("saga_id", command.sagaId), kv("order_id", command.orderId), kv("reason", reason))
     }
 }

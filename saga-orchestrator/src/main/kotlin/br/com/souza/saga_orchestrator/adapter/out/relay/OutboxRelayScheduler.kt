@@ -32,6 +32,7 @@ class OutboxRelayScheduler(
             try {
                 val key = "${event.aggregateType}:${event.aggregateId}"
                 val record = ProducerRecord<String, String>(event.topic, key, event.payload)
+                record.headers().add("outbox-event-id", id.toByteArray(StandardCharsets.UTF_8))
                 if (event.traceParent != null) {
                     record.headers().add("traceparent", event.traceParent.toByteArray(StandardCharsets.UTF_8))
                 }

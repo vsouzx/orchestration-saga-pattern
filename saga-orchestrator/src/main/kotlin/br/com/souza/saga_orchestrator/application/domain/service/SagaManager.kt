@@ -62,23 +62,35 @@ class SagaManager(
     }
 
     @Transactional
-    override fun execute(sagaId: String, status: ReplyStatus, reason: String?, traceParent: String?) {
-        val saga = sagaRepository.findById(sagaId)
+    override fun execute(sagaId: String, expectedStep: SagaStep, status: ReplyStatus, reason: String?, traceParent: String?) {
+        val saga = sagaRepository.findByIdForUpdate(sagaId)
         if (saga == null) {
             logger.warn("Saga not found, ignoring reply", kv("saga_id", sagaId))
             return
         }
 
-        if (saga.currentStep == SagaStep.ORDER_COMPLETED || saga.currentStep == SagaStep.ORDER_FAILED) {
+        if (saga.currentStep != expectedStep) {
             logger.info(
-                "Saga is in terminal state, ignoring reply",
+                "Saga not in expected step, ignoring reply",
                 kv("saga_id", sagaId),
-                kv("current_step", saga.currentStep.name)
+                kv("current_step", saga.currentStep.name),
+                kv("expected_step", expectedStep.name)
             )
             return
         }
 
-        val transition = stateMachine.transition(saga.currentStep, status)
+        val transition = try {
+            stateMachine.transition(saga.currentStep, status)
+        } catch (e: IllegalStateException) {
+            logger.warn(
+                "Ignoring duplicate or invalid reply",
+                kv("saga_id", sagaId),
+                kv("current_step", saga.currentStep.name),
+                kv("reply_status", status.name),
+                kv("reason", e.message ?: "")
+            )
+            return
+        }
         advanceSaga(saga, transition, traceParent, reason)
     }
 

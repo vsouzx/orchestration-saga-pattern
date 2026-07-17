@@ -35,7 +35,9 @@ type RedisConfig struct {
 
 type KafkaConfig struct {
 	Brokers            []string `mapstructure:"brokers"`
-	OrdersRepliesTopic string   `mapstructure:"orders_replies_topic"`
+	CreateOrderRepliesTopic  string `mapstructure:"create_order_replies_topic"`
+	ConfirmOrderRepliesTopic string `mapstructure:"confirm_order_replies_topic"`
+	CancelOrderRepliesTopic  string `mapstructure:"cancel_order_replies_topic"`
 	ConfirmOrderTopic  string   `mapstructure:"confirm_order_topic"`
 	CancelOrderTopic   string   `mapstructure:"cancel_order_topic"`
 }
@@ -61,7 +63,9 @@ func Load() *Config {
 	v.BindEnv("redis.addr", "REDIS_ADDR")
 	v.BindEnv("redis.pass", "REDIS_PASS")
 	v.BindEnv("kafka.brokers", "KAFKA_BROKERS")
-	v.BindEnv("kafka.orders_replies_topic", "KAFKA_ORDERS_REPLIES_TOPIC")
+	v.BindEnv("kafka.create_order_replies_topic", "KAFKA_CREATE_ORDER_REPLIES_TOPIC")
+	v.BindEnv("kafka.confirm_order_replies_topic", "KAFKA_CONFIRM_ORDER_REPLIES_TOPIC")
+	v.BindEnv("kafka.cancel_order_replies_topic", "KAFKA_CANCEL_ORDER_REPLIES_TOPIC")
 	v.BindEnv("kafka.confirm_order_topic", "KAFKA_CONFIRM_ORDER_TOPIC")
 	v.BindEnv("kafka.cancel_order_topic", "KAFKA_CANCEL_ORDER_TOPIC")
 	v.BindEnv("outbox.batch_size", "OUTBOX_BATCH_SIZE")

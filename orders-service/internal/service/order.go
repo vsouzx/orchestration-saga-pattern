@@ -63,7 +63,7 @@ func (os *OrderService) CreateOrder(ctx context.Context, request domain.OrderReq
 	outboxModel := domain.OutboxModel{
 		AggregateType: "ORDER",
 		AggregateId:   orderId,
-		EventType:     "orders.replies",
+		EventType:     "orders.replies.create-order",
 		Payload:       payload,
 		TraceParent:   traceParentFromContext(ctx),
 		Status:        "PENDING",
@@ -113,7 +113,7 @@ func (os *OrderService) CancelOrder(ctx context.Context, sagaId string, orderId 
 	outboxModel := domain.OutboxModel{
 		AggregateType: "ORDER",
 		AggregateId:   orderId,
-		EventType:     "orders.replies",
+		EventType:     "orders.replies.cancel-order",
 		Payload:       payload,
 		TraceParent:   traceParentFromContext(ctx),
 		Status:        "PENDING",
@@ -168,7 +168,7 @@ func (os *OrderService) ConfirmOrder(ctx context.Context, sagaId string, orderId
 	outboxModel := domain.OutboxModel{
 		AggregateType: "ORDER",
 		AggregateId:   orderId,
-		EventType:     "orders.replies",
+		EventType:     "orders.replies.confirm-order",
 		Payload:       payload,
 		TraceParent:   traceParentFromContext(ctx),
 		Status:        "PENDING",

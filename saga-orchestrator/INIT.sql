@@ -15,6 +15,7 @@ CREATE TABLE saga_history (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+CREATE UNIQUE INDEX idx_sagas_order_id ON sagas(order_id);
 CREATE INDEX idx_saga_history_saga_id ON saga_history(saga_id);
 
 CREATE TABLE outbox_events (

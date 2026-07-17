@@ -4,12 +4,16 @@ import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.Id
 import jakarta.persistence.Table
+import jakarta.persistence.UniqueConstraint
 import org.hibernate.annotations.JdbcTypeCode
 import org.hibernate.type.SqlTypes
 import java.time.LocalDateTime
 
 @Entity
-@Table(name = "sagas")
+@Table(
+    name = "sagas",
+    uniqueConstraints = [UniqueConstraint(columnNames = ["order_id"])]
+)
 data class SagaJpaEntity(
     @Id
     val id: String = "",

@@ -90,12 +90,12 @@ class SagaManagerTest {
             currentStep = SagaStep.RESERVING_STOCK_PENDING,
             payload = """{"orderId":"order-1","productId":1,"quantity":2,"paymentType":"PIX","amount":5000}"""
         )
-        whenever(sagaRepository.findById("saga-1")).thenReturn(saga)
+        whenever(sagaRepository.findByIdForUpdate("saga-1")).thenReturn(saga)
         whenever(sagaRepository.save(any())).thenAnswer { it.arguments[0] as Saga }
         whenever(sagaHistoryRepository.save(any())).thenAnswer { it.arguments[0] as SagaHistory }
         whenever(outboxRepository.save(any())).thenAnswer { it.arguments[0] as OutboxEvent }
 
-        sagaManager.execute("saga-1", ReplyStatus.SUCCESS, null, "00-traceid-spanid-01")
+        sagaManager.execute("saga-1", SagaStep.RESERVING_STOCK_PENDING, ReplyStatus.SUCCESS, null, "00-traceid-spanid-01")
 
         // Verify saga updated to PROCESSING_PAYMENT_PENDING
         argumentCaptor<Saga>().apply {
@@ -127,12 +127,12 @@ class SagaManagerTest {
             currentStep = SagaStep.PROCESSING_PAYMENT_PENDING,
             payload = """{"orderId":"order-1","productId":1,"quantity":2,"paymentType":"BOLETO"}"""
         )
-        whenever(sagaRepository.findById("saga-1")).thenReturn(saga)
+        whenever(sagaRepository.findByIdForUpdate("saga-1")).thenReturn(saga)
         whenever(sagaRepository.save(any())).thenAnswer { it.arguments[0] as Saga }
         whenever(sagaHistoryRepository.save(any())).thenAnswer { it.arguments[0] as SagaHistory }
         whenever(outboxRepository.save(any())).thenAnswer { it.arguments[0] as OutboxEvent }
 
-        sagaManager.execute("saga-1", ReplyStatus.FAILURE, "BOLETO_NOT_ACCEPTED", null)
+        sagaManager.execute("saga-1", SagaStep.PROCESSING_PAYMENT_PENDING, ReplyStatus.FAILURE, "BOLETO_NOT_ACCEPTED", null)
 
         argumentCaptor<Saga>().apply {
             verify(sagaRepository, times(2)).save(capture())
@@ -158,6 +158,25 @@ class SagaManagerTest {
     }
 
     @Test
+    fun `onReply should ignore reply when saga is not in expected step`() {
+        val saga = Saga(
+            id = "saga-1",
+            orderId = "order-1",
+            currentStep = SagaStep.PROCESSING_PAYMENT_PENDING,
+            payload = """{"orderId":"order-1"}"""
+        )
+        whenever(sagaRepository.findByIdForUpdate("saga-1")).thenReturn(saga)
+
+        // Reply duplicado de reserve-stock chega quando saga já avançou para PROCESSING_PAYMENT_PENDING.
+        // O expectedStep (RESERVING_STOCK_PENDING) não bate com o currentStep, então é ignorado.
+        sagaManager.execute("saga-1", SagaStep.RESERVING_STOCK_PENDING, ReplyStatus.SUCCESS, null, null)
+
+        verify(sagaRepository, never()).save(any())
+        verify(sagaHistoryRepository, never()).save(any())
+        verify(outboxRepository, never()).save(any())
+    }
+
+    @Test
     fun `onReply to terminal state should record completedStep and terminal step without outbox`() {
         val saga = Saga(
             id = "saga-1",
@@ -165,11 +184,11 @@ class SagaManagerTest {
             currentStep = SagaStep.CONFIRMING_RESERVATION_PENDING,
             payload = "{}"
         )
-        whenever(sagaRepository.findById("saga-1")).thenReturn(saga)
+        whenever(sagaRepository.findByIdForUpdate("saga-1")).thenReturn(saga)
         whenever(sagaRepository.save(any())).thenAnswer { it.arguments[0] as Saga }
         whenever(sagaHistoryRepository.save(any())).thenAnswer { it.arguments[0] as SagaHistory }
 
-        sagaManager.execute("saga-1", ReplyStatus.SUCCESS, null, null)
+        sagaManager.execute("saga-1", SagaStep.CONFIRMING_RESERVATION_PENDING, ReplyStatus.SUCCESS, null, null)
 
         argumentCaptor<Saga>().apply {
             verify(sagaRepository).save(capture())

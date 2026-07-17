@@ -18,6 +18,9 @@ class SagaRepositoryAdapter(
     override fun findById(id: String): Saga? =
         jpaRepository.findById(id).orElse(null)?.toDomain()
 
+    override fun findByIdForUpdate(id: String): Saga? =
+        jpaRepository.findByIdForUpdate(id).orElse(null)?.toDomain()
+
     override fun findByOrderId(orderId: String): Saga? =
         jpaRepository.findByOrderId(orderId)?.toDomain()
 }

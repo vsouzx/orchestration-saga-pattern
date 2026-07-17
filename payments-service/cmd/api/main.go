@@ -85,12 +85,12 @@ func main() {
 		processPaymentConsumer.Start(appCtx)
 	}()
 
-	// kafka producer — single topic: payments.replies
+	// kafka producer — per-command reply topic
 	repliesWriter := config.NewKafkaProducer(cfg.Kafka.Brokers, cfg.Kafka.PaymentsRepliesTopic)
 	defer repliesWriter.Close()
 
 	writers := map[string]*kafka.Writer{
-		"payments.replies": repliesWriter,
+		cfg.Kafka.PaymentsRepliesTopic: repliesWriter,
 	}
 
 	// relay

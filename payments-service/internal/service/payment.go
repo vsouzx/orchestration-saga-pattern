@@ -89,7 +89,7 @@ func (s *PaymentService) ProcessPayment(ctx context.Context, cmd domain.ProcessP
 	outboxEvent := domain.OutboxEvent{
 		AggregateType: "PAYMENT",
 		AggregateID:   paymentID,
-		EventType:     "payments.replies",
+		EventType:     "payments.replies.process-payment",
 		Payload:       payload,
 		TraceParent:   traceParent,
 		Status:        "PENDING",

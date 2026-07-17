@@ -44,7 +44,7 @@ class ConfirmReservationServiceTest {
             orderId == "order-1" && status == ReservationStatus.CONFIRMED
         })
         verify(outboxRepository).save(argThat {
-            topic == "inventory.replies" &&
+            topic == "inventory.replies.confirm-reservation" &&
             eventType == "INVENTORY_CONFIRMED_REPLY" &&
             payload.contains("SUCCESS")
         })
